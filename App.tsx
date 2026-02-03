@@ -1,6 +1,6 @@
 
-import React, { useState, useCallback } from 'react';
-import { AppStep, BlogTitles, GenerationProgress } from './types';
+import React, { useState, useRef } from 'react';
+import { AppStep, BlogTitles, GenerationProgress, HumanizationMode } from './types';
 import * as gemini from './services/geminiService';
 import Layout from './components/Layout';
 
@@ -8,65 +8,104 @@ const App: React.FC = () => {
   const [step, setStep] = useState<AppStep>(AppStep.KEYWORD_INPUT);
   const [keyword, setKeyword] = useState('');
   const [titles, setTitles] = useState<BlogTitles | null>(null);
+  const [rejectionReason, setRejectionReason] = useState<string | null>(null);
   const [selectedTitle, setSelectedTitle] = useState('');
   const [finalHtml, setFinalHtml] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [progress, setProgress] = useState<GenerationProgress | null>(null);
+  const [humanMode, setHumanMode] = useState<HumanizationMode>('auto');
+  
+  const [currentRawText, setCurrentRawText] = useState('');
+  const [manualInput, setManualInput] = useState('');
+  const fullArticleRef = useRef<string>('');
+  const chunkIndexRef = useRef<number>(0);
+  const totalChunks = 3;
+
+  const countWords = (text: string) => text.trim() ? text.trim().split(/\s+/).length : 0;
 
   const handleKeywordSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!keyword.trim()) return;
-
     setIsLoading(true);
+    setRejectionReason(null);
     try {
       const generated = await gemini.generateTitles(keyword);
-      setTitles(generated);
-      setStep(AppStep.TITLE_SELECTION);
+      if (!generated.isValid) {
+        setRejectionReason(generated.reason || "This keyword does not have high CPM potential in the Australian market. Please try a different niche (e.g. Mortgages, B2B SaaS, Legal Services).");
+      } else {
+        setTitles(generated);
+        setStep(AppStep.TITLE_SELECTION);
+      }
     } catch (err) {
-      alert("Error generating titles. Please try again.");
+      alert("Error validating keyword.");
     } finally {
       setIsLoading(false);
     }
   };
 
-  const handleTitleSelection = async (title: string) => {
+  const startGeneration = async (title: string) => {
     setSelectedTitle(title);
-    setStep(AppStep.GENERATING_CONTENT);
-    setIsLoading(true);
+    fullArticleRef.current = "";
+    chunkIndexRef.current = 0;
+    processNextChunk(title);
+  };
 
-    let fullArticleText = "";
-    const totalChunks = 3;
+  const processNextChunk = async (title: string) => {
+    setIsLoading(true);
+    setStep(AppStep.GENERATING_CONTENT);
+    const idx = chunkIndexRef.current;
 
     try {
-      for (let i = 0; i < totalChunks; i++) {
-        setProgress({ chunk: i + 1, totalChunks, status: 'writing' });
-        const rawChunk = await gemini.generateContentChunk(title, i, totalChunks, fullArticleText);
-        
-        setProgress({ chunk: i + 1, totalChunks, status: 'humanizing' });
-        const humanizedChunk = await gemini.humanizeText(rawChunk);
-        
-        fullArticleText += "\n\n" + humanizedChunk;
+      setProgress({ chunk: idx + 1, totalChunks, status: 'writing' });
+      const rawChunk = await gemini.generateContentChunk(title, idx, totalChunks, fullArticleRef.current);
+      
+      if (humanMode === 'auto') {
+        setProgress({ chunk: idx + 1, totalChunks, status: 'humanizing' });
+        const humanized = await gemini.humanizeText(rawChunk);
+        finalizeChunk(humanized);
+      } else {
+        setCurrentRawText(rawChunk);
+        setManualInput('');
+        setStep(AppStep.HUMANIZATION_BRIDGE);
       }
-
-      setProgress({ chunk: totalChunks, totalChunks, status: 'completed' });
-      const html = await gemini.formatToHTML(title, fullArticleText);
-      setFinalHtml(html);
-      setStep(AppStep.FINAL_OUTPUT);
     } catch (err) {
-      alert("Error generating content. Please try again.");
-      setStep(AppStep.TITLE_SELECTION);
+      alert("Generation error.");
     } finally {
       setIsLoading(false);
-      setProgress(null);
     }
+  };
+
+  const finalizeChunk = async (content: string) => {
+    fullArticleRef.current += "\n\n" + content;
+    chunkIndexRef.current += 1;
+
+    if (chunkIndexRef.current < totalChunks) {
+      processNextChunk(selectedTitle);
+    } else {
+      setIsLoading(true);
+      setStep(AppStep.GENERATING_CONTENT);
+      setProgress({ chunk: totalChunks, totalChunks, status: 'completed' });
+      const html = await gemini.formatToHTML(selectedTitle, fullArticleRef.current);
+      setFinalHtml(html);
+      setStep(AppStep.FINAL_OUTPUT);
+      setIsLoading(false);
+    }
+  };
+
+  const handleOpenExternal = () => {
+    navigator.clipboard.writeText(currentRawText);
+    window.open('https://humanizeaitext.ai/', '_blank');
   };
 
   const reset = () => {
     setStep(AppStep.KEYWORD_INPUT);
     setKeyword('');
     setTitles(null);
+    setRejectionReason(null);
     setSelectedTitle('');
     setFinalHtml('');
+    fullArticleRef.current = '';
+    chunkIndexRef.current = 0;
   };
 
   const renderStep = () => {
@@ -75,34 +114,55 @@ const App: React.FC = () => {
         return (
           <div className="space-y-6">
             <div className="text-center">
-              <h2 className="text-2xl font-bold text-slate-800 mb-2">Identify Your Target Intent</h2>
-              <p className="text-slate-500">Enter a single trending keyword or niche topic to begin the architecture process.</p>
+              <h2 className="text-2xl font-bold text-slate-800 mb-2">Australian CPM Validator</h2>
+              <p className="text-slate-500">Enter a keyword to check Australian revenue potential.</p>
             </div>
-            <form onSubmit={handleKeywordSubmit} className="space-y-4">
-              <input
-                type="text"
-                value={keyword}
-                onChange={(e) => setKeyword(e.target.value)}
-                placeholder="e.g., Sustainable Minimalist Decor"
-                className="w-full px-6 py-4 text-lg border border-slate-200 rounded-xl focus:ring-4 focus:ring-blue-100 focus:border-blue-500 transition-all outline-none"
-                disabled={isLoading}
-              />
+            
+            <form onSubmit={handleKeywordSubmit} className="space-y-6">
+              <div className="relative">
+                <input
+                  type="text"
+                  value={keyword}
+                  onChange={(e) => setKeyword(e.target.value)}
+                  placeholder="e.g. Sydney Home Loans, B2B Payroll Australia..."
+                  className="w-full px-6 py-4 text-lg border border-slate-200 rounded-xl focus:ring-4 focus:ring-blue-100 transition-all outline-none"
+                />
+                {rejectionReason && (
+                  <div className="mt-3 p-4 bg-red-50 border border-red-200 rounded-xl">
+                    <div className="flex items-start space-x-2">
+                      <svg className="w-5 h-5 text-red-500 mt-0.5" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clipRule="evenodd" /></svg>
+                      <p className="text-sm text-red-700 font-medium leading-tight">{rejectionReason}</p>
+                    </div>
+                  </div>
+                )}
+              </div>
+              
+              <div className="bg-slate-50 p-4 rounded-xl border border-slate-200">
+                <h4 className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-3">Linguistic Engine</h4>
+                <div className="grid grid-cols-2 gap-3">
+                  <button
+                    type="button"
+                    onClick={() => setHumanMode('auto')}
+                    className={`px-4 py-3 rounded-lg text-sm font-semibold transition-all ${humanMode === 'auto' ? 'bg-blue-600 text-white shadow-md' : 'bg-white text-slate-600 border border-slate-200'}`}
+                  >
+                    Auto-Humanize
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setHumanMode('manual')}
+                    className={`px-4 py-3 rounded-lg text-sm font-semibold transition-all ${humanMode === 'manual' ? 'bg-blue-600 text-white shadow-md' : 'bg-white text-slate-600 border border-slate-200'}`}
+                  >
+                    Manual Bridge
+                  </button>
+                </div>
+              </div>
+
               <button
                 type="submit"
                 disabled={isLoading || !keyword.trim()}
-                className="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-4 rounded-xl shadow-lg shadow-blue-200 transition-all flex items-center justify-center space-x-2 disabled:opacity-50"
+                className="w-full bg-slate-900 text-white font-bold py-4 rounded-xl hover:bg-black transition-all disabled:opacity-50"
               >
-                {isLoading ? (
-                  <>
-                    <svg className="animate-spin h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                    </svg>
-                    <span>Analyzing Trends...</span>
-                  </>
-                ) : (
-                  <span>Generate Intent-Driven Titles</span>
-                )}
+                {isLoading ? "Validating AU Market..." : "Check CPM & Generate Titles"}
               </button>
             </form>
           </div>
@@ -112,40 +172,26 @@ const App: React.FC = () => {
         return (
           <div className="space-y-8">
             <div className="text-center">
-              <h2 className="text-2xl font-bold text-slate-800 mb-2">Select Your SEO Foundation</h2>
-              <p className="text-slate-500">We've generated 10 strategic titles for "{keyword}". Choose the best fit for your goals.</p>
+              <h2 className="text-2xl font-bold text-slate-800 mb-2">High-CPM Australian Titles</h2>
+              <p className="text-slate-500">Sought-after topics in the AU market for "{keyword}".</p>
             </div>
-            
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-              <section className="space-y-4">
-                <h3 className="text-sm font-bold uppercase tracking-widest text-slate-400">Informational Questions</h3>
-                <div className="space-y-2">
-                  {titles?.questions.map((q, i) => (
-                    <button
-                      key={i}
-                      onClick={() => handleTitleSelection(q)}
-                      className="w-full text-left p-4 rounded-xl border border-slate-100 hover:border-blue-400 hover:bg-blue-50 transition-all group"
-                    >
-                      <span className="text-slate-800 font-medium group-hover:text-blue-700">{q}</span>
-                    </button>
-                  ))}
-                </div>
-              </section>
-
-              <section className="space-y-4">
-                <h3 className="text-sm font-bold uppercase tracking-widest text-slate-400">Evergreen Topics</h3>
-                <div className="space-y-2">
-                  {titles?.topics.map((t, i) => (
-                    <button
-                      key={i}
-                      onClick={() => handleTitleSelection(t)}
-                      className="w-full text-left p-4 rounded-xl border border-slate-100 hover:border-blue-400 hover:bg-blue-50 transition-all group"
-                    >
-                      <span className="text-slate-800 font-medium group-hover:text-blue-700">{t}</span>
-                    </button>
-                  ))}
-                </div>
-              </section>
+            <div className="grid md:grid-cols-2 gap-6">
+              <div className="space-y-3">
+                <h3 className="text-xs font-bold text-slate-400 uppercase tracking-widest">AU Questions (High CTR)</h3>
+                {titles?.questions?.map((q, i) => (
+                  <button key={i} onClick={() => startGeneration(q)} className="w-full text-left p-4 bg-white border border-slate-100 rounded-xl hover:border-blue-500 hover:shadow-md transition-all text-sm font-medium">
+                    {q}
+                  </button>
+                ))}
+              </div>
+              <div className="space-y-3">
+                <h3 className="text-xs font-bold text-slate-400 uppercase tracking-widest">AU Topics (Evergreen)</h3>
+                {titles?.topics?.map((t, i) => (
+                  <button key={i} onClick={() => startGeneration(t)} className="w-full text-left p-4 bg-white border border-slate-100 rounded-xl hover:border-blue-500 hover:shadow-md transition-all text-sm font-medium">
+                    {t}
+                  </button>
+                ))}
+              </div>
             </div>
           </div>
         );
@@ -153,96 +199,96 @@ const App: React.FC = () => {
       case AppStep.GENERATING_CONTENT:
         return (
           <div className="flex flex-col items-center justify-center space-y-8 py-12">
-            <div className="relative">
-              <div className="w-24 h-24 border-4 border-blue-100 border-t-blue-600 rounded-full animate-spin"></div>
-              <div className="absolute inset-0 flex items-center justify-center">
-                <span className="text-xl font-bold text-blue-600">
-                  {progress ? Math.round((progress.chunk / progress.totalChunks) * 100) : 0}%
-                </span>
+            <div className="w-24 h-24 border-4 border-blue-100 border-t-blue-600 rounded-full animate-spin"></div>
+            <div className="text-center">
+              <h2 className="text-2xl font-bold text-slate-800 uppercase tracking-tight">Section {progress?.chunk} of {totalChunks}</h2>
+              <p className="text-slate-500 uppercase text-xs tracking-widest mt-2">{progress?.status} phase</p>
+            </div>
+          </div>
+        );
+
+      case AppStep.HUMANIZATION_BRIDGE:
+        return (
+          <div className="space-y-6">
+            <div className="bg-blue-50 p-4 rounded-xl flex items-center justify-between">
+              <div>
+                <h3 className="font-bold text-blue-900 leading-tight">Humanization Bridge</h3>
+                <p className="text-xs text-blue-700">Chunk {chunkIndexRef.current + 1} of {totalChunks} ready.</p>
+              </div>
+              <div className="px-3 py-1 bg-blue-600 text-white rounded-full text-[10px] font-bold uppercase">Manual Bridge Active</div>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              <div className="space-y-3">
+                <div className="flex justify-between items-end">
+                  <label className="text-[10px] font-bold text-slate-400 uppercase tracking-tighter">Step 1: AI Raw Draft</label>
+                  <span className={`text-[10px] font-bold ${countWords(currentRawText) > 480 ? 'text-red-500' : 'text-slate-400'}`}>
+                    {countWords(currentRawText)} / 500 words
+                  </span>
+                </div>
+                <div className="relative group">
+                  <textarea
+                    readOnly
+                    value={currentRawText}
+                    className="w-full p-4 h-64 bg-slate-50 border border-slate-200 rounded-xl text-sm font-serif outline-none resize-none"
+                  />
+                  <div className="absolute inset-x-0 bottom-0 p-4 bg-gradient-to-t from-slate-50 to-transparent flex justify-center">
+                    <button 
+                      onClick={handleOpenExternal}
+                      className="bg-blue-600 text-white shadow-xl px-4 py-2 rounded-lg text-xs font-bold hover:bg-blue-700 transition-all flex items-center space-x-2"
+                    >
+                      <span>Copy & Open Humanizer</span>
+                      <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" /></svg>
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              <div className="space-y-3">
+                <div className="flex justify-between items-end">
+                  <label className="text-[10px] font-bold text-slate-400 uppercase tracking-tighter">Step 2: Humanized Result</label>
+                  <span className="text-[10px] font-bold text-slate-400">
+                    {countWords(manualInput)} words
+                  </span>
+                </div>
+                <textarea
+                  value={manualInput}
+                  onChange={(e) => setManualInput(e.target.value)}
+                  placeholder="Paste processed text here..."
+                  className="w-full p-4 h-64 border-2 border-dashed border-blue-200 rounded-xl text-sm focus:border-blue-500 focus:ring-0 transition-all outline-none resize-none"
+                />
               </div>
             </div>
-            <div className="text-center space-y-2">
-              <h2 className="text-2xl font-bold text-slate-800">Constructing Blog Architecture</h2>
-              <p className="text-slate-500">
-                {progress?.status === 'writing' && `Writing expert section ${progress.chunk} of ${progress.totalChunks}...`}
-                {progress?.status === 'humanizing' && `Applying human-touch linguistics to section ${progress.chunk}...`}
-                {progress?.status === 'completed' && `Polishing final semantic HTML structure...`}
-              </p>
-            </div>
-            <div className="w-full max-w-md bg-slate-100 h-2 rounded-full overflow-hidden">
-               <div 
-                className="bg-blue-600 h-full transition-all duration-500" 
-                style={{ width: `${progress ? (progress.chunk / progress.totalChunks) * 100 : 0}%` }}
-              />
-            </div>
-            <p className="text-sm italic text-slate-400 italic">This process takes a few moments to ensure 1200+ words of quality content.</p>
+
+            <button
+              onClick={() => finalizeChunk(manualInput)}
+              disabled={!manualInput.trim()}
+              className="w-full bg-slate-900 text-white font-bold py-4 rounded-xl hover:bg-black transition-all disabled:opacity-50 shadow-lg shadow-slate-200"
+            >
+              Confirm Humanized Section & Next
+            </button>
           </div>
         );
 
       case AppStep.FINAL_OUTPUT:
         return (
           <div className="space-y-6">
-            <div className="flex justify-between items-center pb-6 border-b border-slate-100">
-              <h2 className="text-2xl font-bold text-slate-800">Final Optimized Content</h2>
+            <div className="flex justify-between items-center pb-4 border-b">
+              <h2 className="text-2xl font-bold text-slate-800">Final AU Blog Post</h2>
               <div className="flex space-x-2">
-                <button
-                  onClick={() => {
-                    navigator.clipboard.writeText(finalHtml);
-                    alert("HTML copied to clipboard!");
-                  }}
-                  className="px-4 py-2 bg-slate-800 text-white rounded-lg hover:bg-slate-900 transition-colors text-sm font-medium"
-                >
-                  Copy HTML
-                </button>
-                <button
-                  onClick={reset}
-                  className="px-4 py-2 bg-slate-100 text-slate-600 rounded-lg hover:bg-slate-200 transition-colors text-sm font-medium"
-                >
-                  New Article
-                </button>
+                <button onClick={() => { navigator.clipboard.writeText(finalHtml); alert("Copied!"); }} className="px-4 py-2 bg-slate-800 text-white rounded-lg text-xs font-bold hover:bg-black">Copy HTML</button>
+                <button onClick={reset} className="px-4 py-2 bg-slate-100 text-slate-600 rounded-lg text-xs font-bold hover:bg-slate-200">New Post</button>
               </div>
             </div>
-            
-            <div className="max-w-none">
-              <div 
-                className="p-8 border border-slate-200 rounded-xl bg-white overflow-auto max-h-[700px] shadow-inner"
-                dangerouslySetInnerHTML={{ __html: finalHtml }}
-              />
-            </div>
-            
-            <div className="bg-green-50 p-4 rounded-xl flex items-start space-x-3">
-              <div className="bg-green-100 p-1 rounded-full text-green-600">
-                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 13l4 4L19 7" />
-                </svg>
-              </div>
-              <div>
-                <h4 className="font-bold text-green-800 text-sm uppercase">Compliance Check Passed</h4>
-                <ul className="text-xs text-green-700 mt-1 space-y-1">
-                  <li>• E-E-A-T standards met (Experience & Logic)</li>
-                  <li>• Custom Serif Layout (Georgia/Times)</li>
-                  <li>• Table of Contents & FAQ Schema included</li>
-                  <li>• Semantic HTML optimized for rich snippets</li>
-                </ul>
-              </div>
+            <div className="border border-slate-200 rounded-xl p-8 bg-white shadow-inner overflow-auto max-h-[600px]">
+              <div dangerouslySetInnerHTML={{ __html: finalHtml }} />
             </div>
           </div>
         );
     }
   };
 
-  const getStepName = () => {
-    if (step === AppStep.KEYWORD_INPUT) return 'Keyword';
-    if (step === AppStep.TITLE_SELECTION) return 'Titles';
-    if (step === AppStep.GENERATING_CONTENT) return 'Write';
-    return 'Review';
-  };
-
-  return (
-    <Layout step={getStepName()}>
-      {renderStep()}
-    </Layout>
-  );
+  return <Layout step={step === AppStep.FINAL_OUTPUT ? 'Review' : step === AppStep.GENERATING_CONTENT ? 'Write' : 'Keyword'}>{renderStep()}</Layout>;
 };
 
 export default App;
