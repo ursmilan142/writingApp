@@ -18,7 +18,7 @@ export const generateTitles = async (keyword: string): Promise<BlogTitles> => {
     
     CONSTRAINTS:
     - Use Australian English spelling (e.g., "optimisation", "realise", "centre").
-    - Titles must appeal specifically to the Australian audience (e.g., mentioning "superannuation", "ATO", "GST", "AU" contexts where relevant).
+    - Titles must appeal specifically to the Australian audience.
     
     Return the result in valid JSON format.`,
     config: {
@@ -72,13 +72,14 @@ export const generateContentChunk = async (
     Focus on: ${sectionPrompt}.
     Context from previous segments: ${previousContext.slice(-1000)}
     
-    STRICT CONSTRAINTS:
-    - LOCALE: Use Australian English spelling exclusively (e.g., "optimisation", "realise").
+    STRICT CONSTRAINTS (E-E-A-T Focus):
+    - LOCALE: Use Australian English spelling exclusively.
     - WORD COUNT: Strictly between 400 and 450 words. Do NOT exceed 480 words.
-    - E-E-A-T: Demonstrate deep Australian market expertise. Use specific AU examples (e.g., Commonwealth Bank, realestate.com.au, local regulations).
-    - NO AI-isms: Avoid generic transitions like "moreover" or "in today's world".
-    - Include one specific "Expert Quote" paragraph starting with "QUOTE:".
-    - If this is the last chunk, include a 4-question FAQ tailored to AU search intent.`,
+    - EXPERIENCE: Use phrases like "During my time advising clients in Sydney...", "We've consistently seen in the AU market...", or "From a practitioner's standpoint...".
+    - AUTHORITY: Mention specific Australian standards, bodies, or laws (e.g. ASIC, ATO, Fair Work, Australian Standards).
+    - NO AI-isms: Avoid generic transitions.
+    - Include one specific "Expert Insight" paragraph starting with "INSIGHT:".
+    - If this is the last chunk, include a 4-question FAQ with high-value transactional answers.`,
     config: {
       temperature: 0.85,
       thinkingConfig: { thinkingBudget: 4000 }
@@ -98,7 +99,7 @@ export const humanizeText = async (text: string): Promise<string> => {
     1. LOCALE: Ensure Australian idioms and "down-to-earth" professional tone.
     2. BURSTINESS: Vary sentence lengths aggressively.
     3. PERPLEXITY: Use nuanced, rare industry-specific vocabulary.
-    4. PRESERVE: Keep all "QUOTE:" markers and Australian spellings.
+    4. PRESERVE: Keep all "INSIGHT:" markers and Australian spellings.
     
     Text:
     ${text}`,
@@ -117,20 +118,27 @@ export const formatToHTML = async (title: string, fullContent: string): Promise<
     model: 'gemini-3-pro-preview',
     contents: `Convert the following content into a high-end, SEO-optimized HTML post for an Australian audience.
     
-    REQUIRED CSS:
-    .blog-post-body { font-family: 'Georgia', serif; font-size: 18px; line-height: 1.7; color: #333; }
-    .blog-post-body h2 { font-family: 'Arial', sans-serif; color: #202124; margin-top: 40px; margin-bottom: 15px; font-weight: 700; font-size: 26px; border-bottom: 2px solid #eee; padding-bottom: 10px; }
-    .blog-post-body h3 { font-family: 'Arial', sans-serif; color: #444; margin-top: 30px; margin-bottom: 10px; font-size: 22px; }
-    .highlight-box { background-color: #f1f8ff; border-left: 5px solid #0056b3; padding: 20px; margin: 30px 0; font-style: italic; }
-    .toc-box { background-color: #f9f9f9; border: 1px solid #e0e0e0; padding: 20px; margin-bottom: 30px; border-radius: 8px; }
-    .faq-section { background-color: #fffaf0; padding: 25px; border: 1px solid #ffeeba; border-radius: 8px; margin-top: 40px; }
+    REQUIRED STRUCTURE & STYLING:
+    - Include a <style> block.
+    - Create a "SEO Metadata Dashboard" at the top (styled div) containing:
+        - Suggested Meta Title (60 chars max, high CTR for AU)
+        - Suggested Meta Description (155 chars max, AU context)
+        - Suggested H1 Tag
+    - Main <h1> tag for the page.
+    - Explicit "Author & Credentials" block at the start or end to boost E-E-A-T (placeholder for bio, photo, LinkedIn).
+    - Table of Contents with internal anchor links.
+    - Body content using semantic <h2> and <h3> tags.
+    - "INSIGHT:" paragraphs must be converted to a styled blockquote or highlight box.
+    - "Authority References" section at the end listing suggested Australian authoritative sources to cite.
+    - FAQ section with appropriate schema markup.
 
-    OUTPUT:
-    - Proper Semantic HTML with Australian context markers.
-    - TOC with anchor links.
-    - Body with <h2>, <h3>.
-    - Quotes in .highlight-box.
-    - FAQ section.
+    STYLE GUIDE:
+    .blog-post-body { font-family: 'Georgia', serif; font-size: 18px; line-height: 1.7; color: #333; max-width: 800px; margin: auto; }
+    .seo-dashboard { background: #f8fafc; border: 1px solid #e2e8f0; padding: 20px; border-radius: 8px; margin-bottom: 40px; font-family: sans-serif; }
+    .author-profile { display: flex; align-items: center; background: #fff; border: 1px solid #eee; padding: 15px; border-radius: 12px; margin: 20px 0; }
+    .author-image { width: 60px; height: 60px; border-radius: 50%; background: #ddd; margin-right: 15px; }
+    .insight-box { background-color: #f1f8ff; border-left: 5px solid #0056b3; padding: 20px; margin: 30px 0; font-style: italic; font-weight: 500; }
+    .authority-list { font-size: 14px; color: #666; margin-top: 40px; border-top: 1px solid #eee; padding-top: 20px; }
 
     Title: ${title}
     Content: ${fullContent}`,
