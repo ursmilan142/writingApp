@@ -9,7 +9,7 @@ export const generateTitles = async (keyword: string): Promise<BlogTitles> => {
   const response = await ai.models.generateContent({
     model: 'gemini-3-pro-preview',
     contents: `Analyze keyword: "${keyword}" for Australian high-CPM potential.
-    Return JSON with isValid, reason, questions (5), and topics (5). Use AU spelling.`,
+    Provide 5 questions and 5 topics optimized for Blogger. Return JSON.`,
     config: {
       responseMimeType: "application/json",
       responseSchema: {
@@ -35,24 +35,25 @@ export const generateContentChunk = async (
   previousContext: string = ""
 ): Promise<string> => {
   const ai = getAI();
-  const sectionPrompt = chunkIndex === 0 
-    ? "Introduction and initial expert analysis" 
-    : chunkIndex === totalChunks - 1 
-    ? "Technical deep dive, authoritative conclusion, and a detailed AU-specific FAQ" 
-    : "Comprehensive middle sections with Australian use cases, comparisons, and technical expertise";
+  const sections = [
+    "Introduction and core Australian perspective.",
+    "First expert analysis section with local data.",
+    "Middle section covering technical details and AU regulations.",
+    "Detailed case study or expert comparison for Australians.",
+    "Final authority section, conclusion, and detailed AU FAQ."
+  ];
 
   const response = await ai.models.generateContent({
     model: 'gemini-3-pro-preview',
-    contents: `Write segment ${chunkIndex + 1}/${totalChunks} for a 1200+ word blog titled "${title}".
-    Focus: ${sectionPrompt}.
-    Previous context: ${previousContext.slice(-800)}
+    contents: `Write segment ${chunkIndex + 1}/${totalChunks} for blog "${title}".
+    Goal: ${sections[chunkIndex]}.
+    Previous: ${previousContext.slice(-500)}
     
     CONSTRAINTS:
-    - LOCALE: Australian English spelling only.
-    - WORD COUNT: 400-450 words for this chunk.
-    - E-E-A-T: Use practitioner-led phrasing. Cite Australian bodies (e.g., ACCC, APRA, Fair Work) where relevant.
-    - TONE: Fully human, professional, and helpful. No generic AI fluff.
-    - START INSIGHTS: Use "INSIGHT:" for high-value expert tips.`,
+    - AU English spelling.
+    - Word count: ~250 words per chunk.
+    - Expert practitioner tone.
+    - Use "INSIGHT:" for key tips.`,
     config: {
       temperature: 0.8,
       thinkingConfig: { thinkingBudget: 4000 }
@@ -62,16 +63,24 @@ export const generateContentChunk = async (
   return response.text.trim();
 };
 
-export const humanizeText = async (text: string): Promise<string> => {
+export const humanizeWithHumanizeAI = async (text: string): Promise<string> => {
   const ai = getAI();
   const response = await ai.models.generateContent({
     model: 'gemini-3-pro-preview',
-    contents: `Act as a senior Australian editor. Rewrite this blog segment to be 100% human-sounding. 
-    Vary sentence structure, use natural AU professional idioms, and ensure it flows like a thought-leader piece.
-    Keep all "INSIGHT:" labels.
+    contents: `Act as a senior Australian editor specializing in high-end business blogging. 
+    Rewrite this blog segment to be 100% human-sounding and indistinguishable from an AU expert writer.
+    
+    STRATEGY:
+    - Use "Burstiness": Varied sentence lengths (short punches followed by complex professional thoughts).
+    - Use "Natural Flow": Avoid predictable AI transitions.
+    - Locale: Strictly use Australian professional tone.
+    - Keep all "INSIGHT:" labels.
     
     Text: ${text}`,
-    config: { temperature: 0.9 }
+    config: { 
+        temperature: 0.95,
+        thinkingConfig: { thinkingBudget: 4000 }
+    }
   });
 
   return response.text.trim();
@@ -83,28 +92,15 @@ export const formatToHTML = async (title: string, fullContent: string): Promise<
     model: 'gemini-3-pro-preview',
     contents: `Convert the blog content into a JSON object formatted specifically for a Blogger post.
     
-    REQUIRED STRUCTURE for articleHtml:
-    1. A <style> block containing:
-       - .blog-post-body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; line-height: 1.8; color: #333; }
-       - .insight-box { background: #f0f7ff; border-left: 5px solid #0056b3; padding: 25px; margin: 30px 0; border-radius: 0 8px 8px 0; font-style: italic; }
-       - .image-placeholder { border: 2px dashed #d1d5db; padding: 50px 20px; text-align: center; margin: 35px 0; background: #f9fafb; color: #6b7280; font-size: 14px; font-weight: bold; border-radius: 8px; }
-       - h2 { color: #111827; margin-top: 45px; border-bottom: 1px solid #e5e7eb; padding-bottom: 10px; }
-       - h3 { color: #374151; margin-top: 30px; }
-    2. A <body> block containing the article content.
+    REQUIRED STRUCTURE:
+    1. A <style> block containing professional typography and .insight-box, .image-placeholder styles.
+    2. A <body> block containing semantic content (h2, h3, p, ul).
     
-    CONTENT RULES:
-    - Insert 3-4 <div class="image-placeholder"> tags at logical visual breaks. 
-    - Inside each placeholder, include a clear HTML comment (<!-- ... -->) describing exactly what type of Australian-context image or infographic should be placed there.
-    - Use semantic <h2> and <h3> tags.
-    - Wrap "INSIGHT:" paragraphs in <div class="insight-box">.
-    - Use <ul> and <ol> for readability.
-    - DO NOT include <html>, <head>, or <!DOCTYPE> tags.
-    - RETURN ONLY VALID JSON. No markdown code blocks.
-
-    METADATA:
-    - metaTitle: AU-focused SEO title (max 60 chars).
-    - metaDescription: High-CPM Blogger search description (max 155 chars).
-    - h1: The Blogger Post Title.
+    PLACEHOLDERS:
+    - Insert 3-4 <div class="image-placeholder"> blocks.
+    - Inside each, include a clear <!-- HTML COMMENT --> describing the ideal Australian context image.
+    
+    No <html> or <!DOCTYPE>. Return JSON only.
 
     Title: ${title}
     Content: ${fullContent}`,
@@ -123,11 +119,9 @@ export const formatToHTML = async (title: string, fullContent: string): Promise<
     }
   });
 
-  let rawResponse = response.text.trim();
-  // Strip potential markdown wrappers
-  if (rawResponse.startsWith('```')) {
-    rawResponse = rawResponse.replace(/^```json/, '').replace(/```$/, '').trim();
+  let raw = response.text.trim();
+  if (raw.startsWith('```')) {
+    raw = raw.replace(/^```json/, '').replace(/```$/, '').trim();
   }
-  
-  return JSON.parse(rawResponse);
+  return JSON.parse(raw);
 };

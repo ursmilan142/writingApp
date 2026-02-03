@@ -3,7 +3,6 @@ export enum AppStep {
   KEYWORD_INPUT,
   TITLE_SELECTION,
   GENERATING_CONTENT,
-  HUMANIZATION_BRIDGE,
   FINAL_OUTPUT
 }
 
@@ -26,5 +25,5 @@ export interface FinalArticle {
 export interface GenerationProgress {
   chunk: number;
   totalChunks: number;
-  status: 'writing' | 'humanizing' | 'waiting' | 'completed';
+  status: 'drafting' | 'humanizing' | 'completed';
 }
