@@ -16,6 +16,13 @@ export interface BlogTitles {
   topics?: string[];
 }
 
+export interface FinalArticle {
+  metaTitle: string;
+  metaDescription: string;
+  h1: string;
+  articleHtml: string;
+}
+
 export interface GenerationProgress {
   chunk: number;
   totalChunks: number;
